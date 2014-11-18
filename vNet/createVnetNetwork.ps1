@@ -1,9 +1,19 @@
-﻿Param(
-    #The name used to prefix the assets being created
+﻿<#
+.SYNOPSIS
+    The following script will dynamically create a network config xml, upload it to an azure account and create and connect all of the necessary gateways to get the environment working.
+
+.DESCRIPTION
+   This script creates three vnet networks and links them together via site-to-site VPN connections. There are parameters to select the location of the network. By default, it will create the vNet's in South Central US, East US and West US.
+
+The script processes through 5 user provided parameters in order to dynamically create a vnet-to-vnet connection in a specified azure account. The script will overwrite any existing vnet information, and will fail if a vnet exists with vm's already contained within. There are several #TODO tags in the document with content and features that should be added. This script should represent a desired state of an azure network when complete, and have the ability to dynamically skip and check sections if the setup is already configured correctly
+#>
+Param(
+    #The subscription where you'll be adding the vnet config
     [parameter(Mandatory,Position=1)]
     [ValidateLength(2,20)]
     [String]$AzureSub,
 
+    #The name used to prefix the assets being created
     [parameter(Mandatory,Position=2)]
     [ValidateLength(2,12)]
     [String]$ServicePrefix,
@@ -48,6 +58,7 @@
     [String]$Location3 = "West US"
 
     #TODO: Add ability to specify CIDR
+    #TODO: Load location parameters into an array and loop below rather than running multiple commands.
       	
 )
        
@@ -300,9 +311,9 @@ Else {
 }   #End of Else ($Subscription)
 			
 		
-##############################
-#Stage 2 - Create NetCfg File
-##############################
+#####################################
+#Stage 2 - Create Initial NetCfg File
+#####################################
 		
 #Variable for NetCfg file
 $SourceParent = (Get-Location).Path
@@ -381,23 +392,18 @@ Write-Debug "Creating azure gateways"
 $CreatevNetGateway = {
     param($vNetName)
 
-    #Check if the gateway has been created already, if not proceed
+    #TODO: Check to see if the gateway is already created
 
-    #TODO: Add gateway status check.
-
-    #If ((Get-AzureVNetGateway -VNetName $vNetName).State = "NotProvisioned"){
-        New-AzureVNetGateway -VNetName $vNetName -GatewayType DynamicRouting
-       # }
-    #else{
-     #  Write-Verboe "$(Get-Date -f T) - $vNetName has already been created"
-    #}
+    #Create the gateway: this takes 30 minutes to process
+    New-AzureVNetGateway -VNetName $vNetName -GatewayType DynamicRouting
 }
 
-#Start the jobs
+#Create the gateways in parallel
 Start-Job $CreatevNetGateway -ArgumentList $vNetName1
 Start-Job $CreatevNetGateway -ArgumentList $vNetName2
 Start-Job $CreatevNetGateway -ArgumentList $vNetName3
 
+#Wait for all of the gateway creation jobs to complete prior to proceeding
 Wait-Job *
 
 
@@ -445,12 +451,14 @@ Set-AzureVNetConfig -ConfigurationPath $NetCfgFile -ErrorAction SilentlyContinue
 Write-Verbose "$(Get-Date -f T) - Matching Gateway Shared Keys"
 Write-Debug "About to match the gateway shared keys"
     
-#Recover shared key from vNet1
+#Recover private key each vNet connection
 $vNet12SharedKey = (Get-AzureVNetGatewayKey -VNetName $vNetName1 -LocalNetworkSiteName "vNet1-to-vNet2").Value
 $vNet13SharedKey = (Get-AzureVNetGatewayKey -VNetName $vNetName1 -LocalNetworkSiteName "vNet1-to-vNet3").Value
 $vNet23SharedKey = (Get-AzureVNetGatewayKey -VNetName $vNetName2 -LocalNetworkSiteName "vNet2-to-vNet3").Value
 
-#Set vNet2's shared key to match vNet 1
+#TODO: Check to see if the connection has already successfully been established prior to changing the network keys. This shouldn't hurt either way though.
+
+#Set the corresponding private key to match its partner vnet 
 Set-AzureVNetGatewayKey -VNetName $vNetName2 -LocalNetworkSiteName "vNet2-to-vNet1" -SharedKey $vNet12SharedKey
 Set-AzureVNetGatewayKey -VNetName $vNetName3 -LocalNetworkSiteName "vNet3-to-vNet1" -SharedKey $vNet13SharedKey
 Set-AzureVNetGatewayKey -VNetName $vNetName3 -LocalNetworkSiteName "vNet3-to-vNet2" -SharedKey $vNet23SharedKey
@@ -459,8 +467,9 @@ Set-AzureVNetGatewayKey -VNetName $vNetName3 -LocalNetworkSiteName "vNet3-to-vNe
 #Stage 6 - Finalize the Connection
 ##################################
 
-Write-Output "The operation has completed."
-
+#Write out the connection status
 Get-AzureVNetConnection -VNetName $vNetName1
 Get-AzureVNetConnection -VNetName $vNetName2
 Get-AzureVNetConnection -VNetName $vNetName3
+
+Write-Output "The operation has completed."
