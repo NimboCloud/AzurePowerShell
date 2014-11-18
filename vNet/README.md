@@ -1,9 +1,6 @@
-Nimbo's Azure PowerShell Repository
+Create vNets in Three Regions
 ===============
 
-A repository for Azure PowerShell scripts shred with the Nimbo community.
-
-##[createVnetNetwork](https://github.com/NimboCloud/AzurePowerShell/blob/master/vNet/createVnetNetwork.ps1)
 **Status: In Progress**
 
 ###Description
